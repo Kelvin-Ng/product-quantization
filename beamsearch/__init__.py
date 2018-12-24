@@ -1,0 +1,1 @@
+from beamsearch.beamsearch import encodePointsBeamSearch

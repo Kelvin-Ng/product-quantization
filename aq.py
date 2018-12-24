@@ -5,6 +5,7 @@ from scipy import sparse
 from scipy.sparse.linalg import lsmr
 from multiprocessing import Pool, cpu_count
 from functools import partial
+from beamsearch import encodePointsBeamSearch
 
 
 def solveDimensionLeastSquares(startDim, dimCount, data, indices, indptr, trainPoints, codebookSize, M):
@@ -20,62 +21,62 @@ def solveDimensionLeastSquares(startDim, dimCount, data, indices, indptr, trainP
     return (codebooksComponents, discrepancy)
 
 
-def encodePointsBeamSearch(startPid, pointsCount, pointCodebookProducts, codebooksProducts, codebooksNorms, branch):
-    M = codebooksProducts.shape[0]
-    K = codebooksProducts.shape[1]
-    hashArray = np.array([13 ** i for i in range(M)])
-    pointsCount = min(pointsCount, pointCodebookProducts.shape[0] - startPid)
-    assigns = np.zeros((pointsCount, M), dtype='int32')
-    errors = np.zeros((pointsCount), dtype='float32')
-    for pid in range(startPid, startPid+pointsCount):
-        distances = - pointCodebookProducts[pid,:] + codebooksNorms
-        bestIdx = distances.argsort()[0:branch]
-        vocIds = bestIdx // K
-        wordIds = bestIdx % K
-        bestSums = -1 * np.ones((branch, M), dtype='int32')
-        for candidateIdx in range(branch):
-            bestSums[candidateIdx,vocIds[candidateIdx]] = wordIds[candidateIdx]
-        bestSumScores = distances[bestIdx]
-        for m in range(1, M):
-            candidatesScores = np.array([bestSumScores[i].repeat(M * K) for i in range(branch)]).flatten()
-            candidatesScores += np.tile(distances, branch)
-            globalHashTable = np.zeros(115249, dtype='int8')
-            for candidateIdx in range(branch):
-                for m in range(M):
-                      if bestSums[candidateIdx,m] < 0:
-                          continue
-                      candidatesScores[candidateIdx*M*K:(candidateIdx+1)*M*K] += \
-                          codebooksProducts[m, bestSums[candidateIdx,m], :]
-                      candidatesScores[candidateIdx*M*K + m*K:candidateIdx*M*K+(m+1)*K] += 999999
-            bestIndices = candidatesScores.argsort()
-            found = 0
-            currentBestIndex = 0
-            newBestSums = -1 * np.ones((branch, M), dtype='int32')
-            newBestSumsScores = -1 * np.ones((branch), dtype='float32')
-            while found < branch:
-                bestIndex = bestIndices[currentBestIndex]
-                candidateId = bestIndex // (M * K)
-                codebookId = (bestIndex % (M * K)) // K
-                wordId = (bestIndex % (M * K)) % K
-                bestSums[candidateId,codebookId] = wordId
-                hashIdx = np.dot(bestSums[candidateId,:], hashArray) % 115249
-                if globalHashTable[hashIdx] == 1:
-                    bestSums[candidateId,codebookId] = -1
-                    currentBestIndex += 1
-                    continue
-                else:
-                    bestSums[candidateId,codebookId] = -1
-                    globalHashTable[hashIdx] = 1
-                    newBestSums[found,:] = bestSums[candidateId,:]
-                    newBestSums[found,codebookId] = wordId
-                    newBestSumsScores[found] = candidatesScores[bestIndex]
-                    found += 1
-                    currentBestIndex += 1
-            bestSums = newBestSums.copy()
-            bestSumScores = newBestSumsScores.copy()
-        assigns[pid-startPid,:] = bestSums[0,:]
-        errors[pid-startPid] = bestSumScores[0]
-    return (assigns, errors)
+#def encodePointsBeamSearch(startPid, pointsCount, pointCodebookProducts, codebooksProducts, codebooksNorms, branch):
+#    M = codebooksProducts.shape[0]
+#    K = codebooksProducts.shape[1]
+#    hashArray = np.array([13 ** i for i in range(M)])
+#    pointsCount = min(pointsCount, pointCodebookProducts.shape[0] - startPid)
+#    assigns = np.zeros((pointsCount, M), dtype='int32')
+#    errors = np.zeros((pointsCount), dtype='float32')
+#    for pid in range(startPid, startPid+pointsCount):
+#        distances = - pointCodebookProducts[pid,:] + codebooksNorms
+#        bestIdx = distances.argsort()[0:branch]
+#        vocIds = bestIdx // K
+#        wordIds = bestIdx % K
+#        bestSums = -1 * np.ones((branch, M), dtype='int32')
+#        for candidateIdx in range(branch):
+#            bestSums[candidateIdx,vocIds[candidateIdx]] = wordIds[candidateIdx]
+#        bestSumScores = distances[bestIdx]
+#        for m in range(1, M):
+#            candidatesScores = np.array([bestSumScores[i].repeat(M * K) for i in range(branch)]).flatten()
+#            candidatesScores += np.tile(distances, branch)
+#            globalHashTable = np.zeros(115249, dtype='int8')
+#            for candidateIdx in range(branch):
+#                for m in range(M):
+#                      if bestSums[candidateIdx,m] < 0:
+#                          continue
+#                      candidatesScores[candidateIdx*M*K:(candidateIdx+1)*M*K] += \
+#                          codebooksProducts[m, bestSums[candidateIdx,m], :]
+#                      candidatesScores[candidateIdx*M*K + m*K:candidateIdx*M*K+(m+1)*K] += 999999
+#            bestIndices = candidatesScores.argsort()
+#            found = 0
+#            currentBestIndex = 0
+#            newBestSums = -1 * np.ones((branch, M), dtype='int32')
+#            newBestSumsScores = -1 * np.ones((branch), dtype='float32')
+#            while found < branch:
+#                bestIndex = bestIndices[currentBestIndex]
+#                candidateId = bestIndex // (M * K)
+#                codebookId = (bestIndex % (M * K)) // K
+#                wordId = (bestIndex % (M * K)) % K
+#                bestSums[candidateId,codebookId] = wordId
+#                hashIdx = np.dot(bestSums[candidateId,:], hashArray) % 115249
+#                if globalHashTable[hashIdx] == 1:
+#                    bestSums[candidateId,codebookId] = -1
+#                    currentBestIndex += 1
+#                    continue
+#                else:
+#                    bestSums[candidateId,codebookId] = -1
+#                    globalHashTable[hashIdx] = 1
+#                    newBestSums[found,:] = bestSums[candidateId,:]
+#                    newBestSums[found,codebookId] = wordId
+#                    newBestSumsScores[found] = candidatesScores[bestIndex]
+#                    found += 1
+#                    currentBestIndex += 1
+#            bestSums = newBestSums.copy()
+#            bestSumScores = newBestSumsScores.copy()
+#        assigns[pid-startPid,:] = bestSums[0,:]
+#        errors[pid-startPid] = bestSumScores[0]
+#    return (assigns, errors)
 
 
 def encodePointsAQ(points, codebooks, branch):
@@ -191,6 +192,38 @@ class AQ(object):
         (codes, errors) = encodePointsAQ(vecs, self.codewords, self.branch)
         print("# Mean AQ quantization error: %f" % (np.mean(errors)))
         return codes
+
+    def encode_and_bucket(self, vecs):
+        assert vecs.dtype == np.float32
+        assert vecs.ndim == 2
+        N, D = vecs.shape
+        assert self.codewords.shape == (self.M, self.Ks, D)
+
+        (codes, errors) = encodePointsAQ(vecs, self.codewords, self.branch)
+        print("Mean AQ quantization error: %f" % (np.mean(errors)))
+
+        buckets_items = [[] for i in range(self.Ks ** self.M)]
+        buckets_residue = np.zeros((N), dtype=vecs.dtype)
+        for i in range(N):
+            code = 0
+            for m in reversed(range(self.M)):
+                code *= self.Ks
+                code += codes[i, m]
+
+            buckets_items[code].append(i)
+
+        for code in range(self.Ks ** self.M):
+            code_tmp = code
+            center = np.zeros((D), dtype=vecs.dtype)
+            for m in range(self.M):
+                center += self.codewords[m][code_tmp % self.Ks]
+                code_tmp /= self.Ks
+            #buckets_residue[code] = np.max(np.linalg.norm(vecs[buckets_items[code]] - center, axis=1))
+            buckets_residue[code] = 0
+            for item_id in buckets_items[code]:
+                buckets_residue[code] = max(buckets_residue[code], np.linalg.norm(vecs[item_id] - center))
+
+        return buckets_items, buckets_residue
 
     def decode(self, codes):
         assert codes.ndim == 2
