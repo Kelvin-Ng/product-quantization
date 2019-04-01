@@ -7,7 +7,7 @@ import tqdm
 class NormPQ(object):
     def __init__(self, n_percentile, quantize, true_norm=False, verbose=True, method='kmeans', recover='quantize'):
 
-        self.M = 2
+        self.M = quantize.num_codebooks + 1
         self.n_percentile, self.true_norm, self.verbose = n_percentile, true_norm, verbose
         self.method = method
         self.recover = recover
@@ -20,6 +20,10 @@ class NormPQ(object):
     def class_message(self):
         return "NormPQ, percentiles: {}, quantize: {}".format(self.n_percentile, self.quantize.class_message())
 
+    @property
+    def num_codebooks(self):
+        return self.M
+
     def fit(self, vecs, iter):
         assert vecs.dtype == np.float32
         assert vecs.ndim == 2
@@ -29,7 +33,9 @@ class NormPQ(object):
         norms, normalized_vecs = normalize(vecs)
         self.quantize.fit(normalized_vecs, iter)
 
-        if self.recover == 'quantize':
+        if self.recover == 'spherical':
+            pass
+        elif self.recover == 'quantize':
             compressed_vecs = self.quantize.compress(normalized_vecs)
             norms = norms / np.linalg.norm(compressed_vecs, axis=1)
         elif self.recover == 'normalization':
@@ -76,7 +82,7 @@ class NormPQ(object):
         else:
             norm_index = [np.argmax(self.percentiles[1:] > n) for n in norms]
             norm_index = np.clip(norm_index, 1, self.n_percentile)
-        return norm_index
+        return np.ascontiguousarray(norm_index, self.code_dtype)
 
     def decode_norm(self, norm_index):
         if self.method == 'kmeans' or self.method == 'kmeans_partial':
@@ -84,27 +90,36 @@ class NormPQ(object):
         else:
             return (self.percentiles[norm_index]+self.percentiles[norm_index-1]) / 2.0
 
-    def compress(self, vecs):
+    def encode(self, vecs):
         norms, normalized_vecs = normalize(vecs)
-
-        compressed_vecs = self.quantize.compress(normalized_vecs)
+        
+        angular_codes = self.quantize.encode(normalized_vecs)
         del normalized_vecs
 
-        if self.recover == 'quantize':
-            norms = norms / np.linalg.norm(compressed_vecs, axis=1)
-        elif self.recover == 'normalization':
-            warnings.warn("Recover norm by normalization.")
-            _, compressed_vecs = normalize(compressed_vecs)
-            assert False
-        else:
-            warnings.warn("No normalization guarantee.")
-            assert False
+        if self.recover != 'spherical':
+            compressed_vecs = self.quantize.decode(angular_codes)
 
-        if not self.true_norm:
-            norms = self.decode_norm(self.encode_norm(norms))
-        else:
+            if self.recover == 'quantize':
+                norms = norms / np.linalg.norm(compressed_vecs, axis=1)
+            elif self.recover == 'normalization':
+                warnings.warn("Recover norm by normalization.")
+                _, compressed_vecs = normalize(compressed_vecs)
+                assert False
+            else:
+                warnings.warn("No normalization guarantee.")
+                assert False
+
+        if self.true_norm:
             warnings.warn("Using true norm to compress vector.")
             assert False
 
+        return np.concatenate([self.encode_norm(norms)[:, np.newaxis], angular_codes], axis=1)
+
+    def decode(self, codes):
+        norms = self.decode_norm(codes[:, 0])
+        compressed_vecs = self.quantize.decode(codes[:, 1:].astype(self.quantize.code_dtype, copy=False))
+
         return (compressed_vecs.transpose() * norms).transpose()
 
+    def compress(self, vecs):
+        return self.decode(self.encode(vecs))
