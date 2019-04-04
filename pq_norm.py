@@ -73,6 +73,8 @@ class NormPQ(object):
         else:
             assert False
 
+        self.percentiles[::-1].sort()
+
         return self
 
     def encode_norm(self, norms):
