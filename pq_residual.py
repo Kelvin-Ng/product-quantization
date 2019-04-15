@@ -26,6 +26,11 @@ class ResidualPQ(object):
     def num_codebooks(self):
         return self.M * self.deep
 
+    @property
+    def codewords(self):
+        max_dim = max([self.pqs[0].Ds[m+1] - self.pqs[0].Ds[m] for m in range(self.M)])
+        return np.stack([pq.codewords[:, :, :max_dim] for pq in self.pqs], axis=0)
+
     def fit(self, T, iter, save_codebook=False, save_decoded=[], save_residue_norms=[], save_results_T=False, dataset_name=None, save_dir=None, D=None):
         assert T.dtype == np.float32
         assert T.ndim == 2
