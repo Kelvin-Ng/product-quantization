@@ -20,17 +20,17 @@ if __name__ == '__main__':
           .format(args.dataset, args.topk, args.num_codebook, args.Ks, args.metric))
 
     X, T, Q, G = loader(args.dataset, args.topk, args.metric, folder=args.data_dir)
+
+    scale = np.max(np.linalg.norm(X, axis=1))
+    X /= scale
+
     if T is None:
         T = X[:args.train_size]
     else:
         T = T[:args.train_size]
+        T /= scale
+
     T = np.ascontiguousarray(T, np.float32)
-
-    scale = np.max(np.linalg.norm(X, axis=1))
-
-    X /= scale
-    T /= scale
-    Q /= scale
 
     # pq, rq, or component of norm-pq
     pqs = [PQ(M=1, Ks=args.Ks) for _ in range(args.num_codebook)]
